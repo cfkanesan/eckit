@@ -27,6 +27,20 @@ def _as_area(area):
     return Area(area)
 
 
+cdef _values(const vector[double]& v):
+    """Values as a numpy array (a copy), or a list if numpy isn't available."""
+    try:
+        import numpy as np
+    except ImportError:  # numpy is optional
+        return list(v)
+
+    out = np.empty(v.size())
+    cdef double[::1] array = out
+    if v.size() > 0:
+        memcpy(&array[0], v.data(), v.size() * sizeof(double))
+    return out
+
+
 cdef const eckit_geo_area.Area* _area_ptr(area):
     return <const eckit_geo_area.Area*>PyCapsule_GetPointer(
         area._capsule(), "eckit::geo::Area"
@@ -67,13 +81,16 @@ cdef class Grid:
             return NotImplemented
         return self.spec_str == other.spec_str
 
-    def to_latlons(self):
+    def to_latlons(self) -> tuple:
+        """Grid points (latitudes, longitudes), as numpy arrays (or lists)."""
         cdef pair[vector[double], vector[double]] latlons = self._grid.to_latlons()
-        return list(latlons.first), list(latlons.second)
+        return _values(latlons.first), _values(latlons.second)
 
-    def to_xyz(self):
+    def to_xyz(self) -> tuple:
+        """Grid points geocentric (x, y, z), on the grid figure, as numpy arrays (or
+        lists)."""
         cdef vector[vector[double]] xyz = self._grid.to_xyz()
-        return list(xyz[0]), list(xyz[1]), list(xyz[2])
+        return _values(xyz[0]), _values(xyz[1]), _values(xyz[2])
 
     def to_points(self) -> dict:
         """Grid points, as a dict of coordinate name (see point_coordinates) to values
@@ -84,18 +101,10 @@ cdef class Grid:
         )
         assert <size_t>len(names) == w.size()
 
-        try:
-            import numpy as np
-        except ImportError:  # numpy is optional
-            return {name: list(c) for name, c in zip(names, w)}
-
-        cdef double[::1] array
+        cdef size_t k
         out = {}
         for k in range(w.size()):
-            out[names[k]] = np.empty(w[k].size())
-            array = out[names[k]]
-            if w[k].size() > 0:
-                memcpy(&array[0], w[k].data(), w[k].size() * sizeof(double))
+            out[names[k]] = _values(w[k])
         return out
 
     @property
@@ -120,16 +129,20 @@ cdef class Grid:
         return self.lon()
 
     def x(self):
-        return list(eckit_geo_grid.grid_x_values(dereference(self._grid)))
+        """Distinct x values (regular grids), as a numpy array (or list)."""
+        return _values(eckit_geo_grid.grid_x_values(dereference(self._grid)))
 
     def y(self):
-        return list(eckit_geo_grid.grid_y_values(dereference(self._grid)))
+        """Distinct y values (regular grids), as a numpy array (or list)."""
+        return _values(eckit_geo_grid.grid_y_values(dereference(self._grid)))
 
     def lon(self):
-        return list(eckit_geo_grid.grid_lon_values(dereference(self._grid)))
+        """Distinct longitudes (regular grids), as a numpy array (or list)."""
+        return _values(eckit_geo_grid.grid_lon_values(dereference(self._grid)))
 
     def lat(self):
-        return list(eckit_geo_grid.grid_lat_values(dereference(self._grid)))
+        """Distinct latitudes (regular grids), as a numpy array (or list)."""
+        return _values(eckit_geo_grid.grid_lat_values(dereference(self._grid)))
 
     def crop(self, area) -> list:
         """Indices of the grid points in the area (Area, BoundingBox or spec), as the
@@ -169,11 +182,12 @@ cdef class Grid:
 
         return mir.grid_box_areas(self)
 
-    def search(self, **spec):
-        """Search on the grid points (see eckit.geo.Search)."""
+    def search(self, *, mask=None, indices=None, **spec):
+        """Search on the grid points, or a subset of them by mask or indices (see
+        eckit.geo.Search)."""
         from eckit.geo._eckit_geo_search import Search
 
-        return Search(self, **spec)
+        return Search(self, mask=mask, indices=indices, **spec)
 
     def _capsule(self):
         """The C++ grid, for other extension modules."""
