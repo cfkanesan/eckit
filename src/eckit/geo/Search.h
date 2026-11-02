@@ -35,6 +35,9 @@ namespace eckit::geo {
  * Spec, of the behaviour: search (nn, knn, radius, knn_or_radius, knn_and_radius), search-k, search-radius.
  * Spec, of the k-d tree: search-loader (see search::KDTreeFactory), caching, search-fast-build (defaults in
  * LibEcKitGeo).
+ *
+ * Searches can be on a subset of points (indices), with results in the numbering of the indices (e.g. grid indices).
+ * Queries are thread-safe; batch queries (arrays of (lon, lat)) run on threads.
  */
 class Search {
 public:
@@ -50,6 +53,12 @@ public:
 
     explicit Search(const Grid&, const Spec& = spec::Custom{});
     explicit Search(const std::vector<PointXYZ>&, const Spec& = spec::Custom{});
+
+    /// On a subset of the grid points (grid indices), results by grid index
+    Search(const Grid&, const std::vector<size_t>& indices, const Spec& = spec::Custom{});
+
+    /// On points, results by their indices (one per point)
+    Search(const std::vector<PointXYZ>&, const std::vector<size_t>& indices, const Spec& = spec::Custom{});
 
     /// Sharing the k-d tree of another search, with another behaviour
     Search(const Search&, const Spec&);
@@ -76,6 +85,25 @@ public:
     Neighbours search_radius(const Point&, double radius) const;
     Neighbours search_knn_or_radius(const Point&, size_t k, double radius) const;
     Neighbours search_knn_and_radius(const Point&, size_t k, double radius) const;
+
+    // -- Batch queries, of n (lon, lat) points, on threads (0: as available to the process), results by query
+
+    /// Nearest neighbour: index[n] and distance[n]
+    void search_nn(size_t n, const double* lon, const double* lat, size_t* index, double* distance,
+                   size_t threads = 0) const;
+
+    /// k nearest neighbours: index[n * k] and distance[n * k] (row-major); if fewer than k points are searched,
+    /// missing neighbours are index missing_index() and distance infinity (as scipy.spatial.KDTree)
+    void search_knn(size_t n, const double* lon, const double* lat, size_t k, size_t* index, double* distance,
+                    size_t threads = 0) const;
+
+    /// Neighbours within radius: those of query i are [offsets[i], offsets[i + 1]) in index and distance (CSR)
+    void search_radius(size_t n, const double* lon, const double* lat, double radius, std::vector<size_t>& offsets,
+                       std::vector<size_t>& index, std::vector<double>& distance, size_t threads = 0) const;
+
+    /// Index of missing neighbours (batch k nearest neighbours): size of the numbering of the results (e.g. the grid
+    /// size), so an invalid index
+    size_t missing_index() const;
 
     size_t size() const;
 
@@ -127,6 +155,9 @@ private:
     void print(std::ostream&) const;
 
     // -- Class methods
+
+    /// Threads as available to the process (CPU affinity)
+    static size_t threads_available();
 
     /// k-d tree configuration, so searches of other behaviours can share it
     static std::unique_ptr<spec::Custom> spec_kdtree(const Spec&);

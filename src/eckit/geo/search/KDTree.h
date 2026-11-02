@@ -43,8 +43,8 @@ using Neighbours = std::vector<Neighbour>;
 
 /**
  * @brief k-d tree, abstracting its storage
- * @details Building is: lock(), if not ready() then build() (or insert()) and commit(), unlock(). Queries update
- * statistics, so they need external synchronisation.
+ * @details Building is: lock(), if not ready() then build() (or insert()) and commit(), unlock(). Once built, queries
+ * don't modify the k-d tree (no statistics are collected), so they are safe to call concurrently.
  */
 class KDTree {
 public:
@@ -80,9 +80,10 @@ public:
     /// Unbalanced
     virtual void insert(const Value&) = 0;
 
-    virtual Neighbour nearest_neighbour(const Point&)               = 0;
-    virtual Neighbours k_nearest_neighbours(const Point&, size_t k) = 0;
-    virtual Neighbours find_in_sphere(const Point&, double radius)  = 0;
+    /// Queries, once built (thread-safe)
+    virtual Neighbour nearest_neighbour(const Point&) const               = 0;
+    virtual Neighbours k_nearest_neighbours(const Point&, size_t k) const = 0;
+    virtual Neighbours find_in_sphere(const Point&, double radius) const  = 0;
 
     /// If built already (e.g. cached)
     virtual bool ready() = 0;
@@ -94,8 +95,9 @@ public:
     virtual void lock() {}
     virtual void unlock() {}
 
-    virtual void stats_print(std::ostream&, bool pretty) const = 0;
-    virtual void stats_reset()                                 = 0;
+    /// Statistics are not collected, so that queries are concurrent
+    virtual void stats_print(std::ostream&, bool pretty) const;
+    virtual void stats_reset() {}
 
     virtual MemoryUsage footprint() const = 0;
 

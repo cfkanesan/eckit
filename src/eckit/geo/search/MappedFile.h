@@ -10,6 +10,7 @@
 
 #include "eckit/container/KDTree.h"
 #include "eckit/filesystem/PathName.h"
+#include "eckit/geo/search/Alloc.h"
 #include "eckit/geo/search/KDTree.h"
 #include "eckit/geo/util/mutex.h"
 
@@ -51,9 +52,9 @@ public:
     void build(std::vector<Value>&) override;
     void insert(const Value&) override;
 
-    Neighbour nearest_neighbour(const Point&) override;
-    Neighbours k_nearest_neighbours(const Point&, size_t k) override;
-    Neighbours find_in_sphere(const Point&, double radius) override;
+    Neighbour nearest_neighbour(const Point&) const override;
+    Neighbours k_nearest_neighbours(const Point&, size_t k) const override;
+    Neighbours find_in_sphere(const Point&, double radius) const override;
 
     bool ready() override;
     void commit() override;
@@ -61,9 +62,6 @@ public:
     void lock() override;
     void unlock() override;
 
-
-    void stats_print(std::ostream&, bool pretty) const override;
-    void stats_reset() override;
 
     /// File-backed storage is shared (page cache)
     MemoryUsage footprint() const override { return {0, mapped_ ? storage_size(size()) : 0}; }
@@ -94,6 +92,7 @@ private:
     std::string tmp_;  // being built
 
     std::unique_ptr<Container> mapped_;
+    std::unique_ptr<alloc::ReadOnlyView> view_;  // queries, once complete
     size_t count_ = 0;
 
     util::recursive_mutex& mutex_;
@@ -112,6 +111,9 @@ private:
 
     Container& mapped();
     const Container& mapped() const;
+
+    /// Queries are on a read-only view of the mapped (complete) file
+    const alloc::ReadOnlyView& view() const;
 
     // -- Overridden methods
 

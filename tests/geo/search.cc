@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -362,6 +363,195 @@ CASE("Search: all loaders, compared to brute force") {
             }
         }
     }
+}
+
+
+// random (lon, lat) queries
+void random_lonlat(size_t n, unsigned seed, std::vector<double>& lon, std::vector<double>& lat) {
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<double> ulon(-180., 180.);
+    std::uniform_real_distribution<double> sinlat(-1., 1.);
+
+    lon.resize(n);
+    lat.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+        lon[i] = ulon(gen);
+        lat[i] = std::asin(sinlat(gen)) * 180. / M_PI;
+    }
+}
+
+
+CASE("Search: batch queries, as single queries, on threads") {
+    const auto points = random_points_on_unit_sphere(1000, 42);
+
+    // enough queries to run on threads
+    std::vector<double> lon;
+    std::vector<double> lat;
+    random_lonlat(3000, 7, lon, lat);
+    const auto n = lon.size();
+
+    constexpr size_t k   = 5;
+    constexpr double rad = 0.15;
+
+    for (const auto& loader : LOADERS) {
+        SECTION(loader) {
+            const Search search(points, spec::Custom{{{"search-loader", loader}, {"R", 1.}}});
+
+            for (size_t threads : {1, 4, 0}) {
+                std::vector<size_t> nn_index(n);
+                std::vector<double> nn_distance(n);
+                search.search_nn(n, lon.data(), lat.data(), nn_index.data(), nn_distance.data(), threads);
+
+                std::vector<size_t> knn_index(n * k);
+                std::vector<double> knn_distance(n * k);
+                search.search_knn(n, lon.data(), lat.data(), k, knn_index.data(), knn_distance.data(), threads);
+
+                std::vector<size_t> offsets;
+                std::vector<size_t> r_index;
+                std::vector<double> r_distance;
+                search.search_radius(n, lon.data(), lat.data(), rad, offsets, r_index, r_distance, threads);
+                EXPECT(offsets.size() == n + 1);
+                EXPECT(offsets.front() == 0);
+                EXPECT(offsets.back() == r_index.size());
+                EXPECT(r_distance.size() == r_index.size());
+
+                for (size_t i = 0; i < n; ++i) {
+                    const PointLonLat q{lon[i], lat[i]};
+
+                    auto nn = search.search_nn(q);
+                    EXPECT(nn_index[i] == nn.index);
+                    EXPECT(nn_distance[i] == nn.distance);
+
+                    auto knn = search.search_knn(q, k);
+                    EXPECT(knn.size() == k);
+                    for (size_t j = 0; j < k; ++j) {
+                        EXPECT(knn_index[i * k + j] == knn[j].index);
+                        EXPECT(knn_distance[i * k + j] == knn[j].distance);
+                    }
+
+                    auto radius = search.search_radius(q, rad);
+                    EXPECT(offsets[i + 1] - offsets[i] == radius.size());
+                    for (size_t j = 0; j < radius.size(); ++j) {
+                        EXPECT(r_index[offsets[i] + j] == radius[j].index);
+                        EXPECT(r_distance[offsets[i] + j] == radius[j].distance);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+CASE("Search: batch k nearest neighbours, fewer points than k") {
+    projection::LonLatToXYZ to_xyz(1.);
+    const std::vector<PointXYZ> points{to_xyz.fwd(PointLonLat{0., 0.}), to_xyz.fwd(PointLonLat{90., 0.}),
+                                       to_xyz.fwd(PointLonLat{0., 90.})};
+
+    const Search search(points, spec::Custom{{{"search-loader", "memory"}, {"R", 1.}}});
+    EXPECT(search.missing_index() == points.size());
+
+    const std::vector<double> lon{1., 89.};
+    const std::vector<double> lat{1., 1.};
+
+    constexpr size_t k = 5;
+    std::vector<size_t> index(lon.size() * k);
+    std::vector<double> distance(lon.size() * k);
+    search.search_knn(lon.size(), lon.data(), lat.data(), k, index.data(), distance.data());
+
+    for (size_t i = 0; i < lon.size(); ++i) {
+        for (size_t j = 0; j < k; ++j) {
+            if (j < points.size()) {
+                EXPECT(index[i * k + j] < points.size());
+                EXPECT(std::isfinite(distance[i * k + j]));
+            }
+            else {
+                EXPECT(index[i * k + j] == search.missing_index());
+                EXPECT(distance[i * k + j] == std::numeric_limits<double>::infinity());
+            }
+        }
+    }
+
+    EXPECT(index[0] == 0);
+    EXPECT(index[k] == 1);
+
+    std::vector<size_t> offsets;
+    std::vector<size_t> r_index;
+    std::vector<double> r_distance;
+    EXPECT_THROWS_AS(search.search_radius(lon.size(), lon.data(), lat.data(), -1., offsets, r_index, r_distance),
+                     exception::SearchError);
+}
+
+
+CASE("Search: subset of the grid points, by grid index") {
+    std::unique_ptr<const Grid> grid(GridFactory::build(spec::Custom{{{"grid", "10/10"}}}));
+    const auto size = grid->size();
+
+    // every third point
+    std::vector<size_t> subset;
+    for (size_t i = 0; i < size; i += 3) {
+        subset.push_back(i);
+    }
+
+    for (const auto& loader : LOADERS) {
+        SECTION(loader) {
+            const Search search(*grid, subset, spec::Custom{{{"search-loader", loader}}});
+            EXPECT(search.size() == subset.size());
+            EXPECT(search.missing_index() == size);
+
+            // brute force on the subset, in grid numbering
+            const auto xyz = grid->to_xyz();
+            std::vector<PointXYZ> points;
+            for (auto i : subset) {
+                points.emplace_back(xyz[0][i], xyz[1][i], xyz[2][i]);
+            }
+
+            const auto& figure = grid->figure();
+            projection::LonLatToXYZ to_xyz(figure.a(), figure.b());
+
+            for (const auto& q : {PointLonLat{14., 1.}, PointLonLat{-100., 44.}, PointLonLat{170., -50.}}) {
+                auto expected = brute_force_knn(points, to_xyz.fwd(q), 4);
+                auto knn      = search.search_knn(q, 4);
+                EXPECT(knn.size() == expected.size());
+
+                for (size_t j = 0; j < knn.size(); ++j) {
+                    EXPECT(knn[j].index == subset[expected[j].index]);
+                    EXPECT(approx(knn[j].distance, expected[j].distance, 1e-6));
+                }
+            }
+
+            // grid points find themselves (if in the subset) or another subset point
+            for (size_t i = 0; i < size; ++i) {
+                const auto nn = search.search_nn(PointXYZ{xyz[0][i], xyz[1][i], xyz[2][i]});
+                EXPECT(nn.index % 3 == 0);
+            }
+        }
+    }
+
+    // another subset is another k-d tree
+    const Search a(*grid, subset, spec::Custom{{{"search-loader", "memory"}}});
+    const Search b(*grid, std::vector<size_t>{0, 1, 2}, spec::Custom{{{"search-loader", "memory"}}});
+    EXPECT(a.size() != b.size());
+
+    EXPECT_THROWS_AS(Search(*grid, std::vector<size_t>{size}, spec::Custom{{{"search-loader", "memory"}}}),
+                     exception::SearchError);
+}
+
+
+CASE("Search: points, by index") {
+    projection::LonLatToXYZ to_xyz(1.);
+    const std::vector<PointXYZ> points{to_xyz.fwd(PointLonLat{0., 0.}), to_xyz.fwd(PointLonLat{90., 0.}),
+                                       to_xyz.fwd(PointLonLat{180., 0.})};
+    const std::vector<size_t> numbering{7, 3, 11};
+
+    const spec::Custom spec{{{"search-loader", "memory"}, {"R", 1.}}};
+    const Search search(points, numbering, spec);
+
+    EXPECT(search.search_nn(PointLonLat{10., 0.}).index == 7);
+    EXPECT(search.search_nn(PointLonLat{100., 0.}).index == 3);
+    EXPECT(search.search_nn(PointLonLat{-170., 0.}).index == 11);
+    EXPECT(search.missing_index() == 12);
+
+    EXPECT_THROWS_AS(Search(points, std::vector<size_t>{1, 2}, spec), exception::SearchError);
 }
 
 

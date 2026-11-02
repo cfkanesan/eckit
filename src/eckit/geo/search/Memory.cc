@@ -36,28 +36,18 @@ void Memory::insert(const Value& value) {
 }
 
 
-Neighbour Memory::nearest_neighbour(const Point& p) {
+Neighbour Memory::nearest_neighbour(const Point& p) const {
     return to_neighbour(tree_.nearestNeighbour(p));
 }
 
 
-Neighbours Memory::k_nearest_neighbours(const Point& p, size_t k) {
+Neighbours Memory::k_nearest_neighbours(const Point& p, size_t k) const {
     return to_neighbours(tree_.kNearestNeighbours(p, k));
 }
 
 
-Neighbours Memory::find_in_sphere(const Point& p, double radius) {
+Neighbours Memory::find_in_sphere(const Point& p, double radius) const {
     return to_neighbours(tree_.findInSphere(p, radius));
-}
-
-
-void Memory::stats_print(std::ostream& out, bool pretty) const {
-    tree_.statsPrint(out, pretty);
-}
-
-
-void Memory::stats_reset() {
-    tree_.statsReset();
 }
 
 

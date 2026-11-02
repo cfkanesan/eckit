@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "eckit/container/KDTree.h"
+#include "eckit/geo/search/Alloc.h"
 #include "eckit/geo/search/KDTree.h"
 
 
@@ -16,7 +16,7 @@ public:
 
     // -- Types
 
-    using Container = KDTreeMemory<Traits>;
+    using Container = alloc::MemoryKDTree;
 
     // -- Constructors
 
@@ -31,16 +31,12 @@ public:
     void build(std::vector<Value>&) override;
     void insert(const Value&) override;
 
-    Neighbour nearest_neighbour(const Point&) override;
-    Neighbours k_nearest_neighbours(const Point&, size_t k) override;
-    Neighbours find_in_sphere(const Point&, double radius) override;
+    Neighbour nearest_neighbour(const Point&) const override;
+    Neighbours k_nearest_neighbours(const Point&, size_t k) const override;
+    Neighbours find_in_sphere(const Point&, double radius) const override;
 
     bool ready() override { return false; }
     void commit() override {}
-
-
-    void stats_print(std::ostream&, bool pretty) const override;
-    void stats_reset() override;
 
     MemoryUsage footprint() const override { return {count_ * sizeof(Container::Node), 0}; }
 
@@ -48,7 +44,11 @@ private:
 
     // -- Members
 
-    Container tree_;
+    alloc::Memory alloc_;
+
+    // queries don't modify it once built (its root is set, statistics are not collected), but aren't const
+    mutable Container tree_{alloc_};
+
     size_t count_ = 0;
 
     // -- Overridden methods

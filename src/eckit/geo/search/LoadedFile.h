@@ -30,15 +30,12 @@ public:
 
     // -- Overridden methods
 
-    Neighbour nearest_neighbour(const Point&) override;
-    Neighbours k_nearest_neighbours(const Point&, size_t k) override;
-    Neighbours find_in_sphere(const Point&, double radius) override;
+    Neighbour nearest_neighbour(const Point&) const override;
+    Neighbours k_nearest_neighbours(const Point&, size_t k) const override;
+    Neighbours find_in_sphere(const Point&, double radius) const override;
 
     bool ready() override;
     void commit() override;
-
-    void stats_print(std::ostream&, bool pretty) const override;
-    void stats_reset() override;
 
 protected:
 
