@@ -45,7 +45,7 @@ bool fast_build(const spec::Spec& spec) {
 }
 
 
-std::string points_uid(const std::vector<PointXYZ>& points, const std::vector<size_t>* indices = nullptr) {
+std::string points_uid(const std::vector<PointXYZ>& points) {
     MD5 hash;
     hash.add(points.size());
     for (const auto& p : points) {
@@ -53,14 +53,6 @@ std::string points_uid(const std::vector<PointXYZ>& points, const std::vector<si
         hash.add(p.Y());
         hash.add(p.Z());
     }
-
-    if (indices != nullptr) {
-        hash.add("indices");
-        for (auto i : *indices) {
-            hash.add(i);
-        }
-    }
-
     return hash.digest();
 }
 
@@ -237,28 +229,6 @@ Search::Search(const std::vector<PointXYZ>& points, const Spec& spec) : shared_(
         values.reserve(points.size());
         for (size_t i = 0; i < points.size(); ++i) {
             values.emplace_back(points[i], i);
-        }
-    });
-}
-
-
-Search::Search(const std::vector<PointXYZ>& points, const std::vector<size_t>& indices, const Spec& spec) :
-    shared_(std::make_shared<Shared>()) {
-    configure(spec);
-
-    if (indices.size() != points.size()) {
-        throw exception::SearchError("Search: expected one index per point (points: " + std::to_string(points.size()) +
-                                         ", indices: " + std::to_string(indices.size()) + ")",
-                                     Here());
-    }
-
-    shared_->to_xyz    = std::make_unique<projection::LonLatToXYZ>(spec);
-    shared_->numbering = indices.empty() ? 0 : *std::max_element(indices.begin(), indices.end()) + 1;
-
-    build(points_uid(points, &indices), points.size(), spec, [&points, &indices](std::vector<KDTree::Value>& values) {
-        values.reserve(points.size());
-        for (size_t i = 0; i < points.size(); ++i) {
-            values.emplace_back(points[i], indices[i]);
         }
     });
 }

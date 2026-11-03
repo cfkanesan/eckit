@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "eckit/geo/search/Alloc.h"
+#include "eckit/container/KDTree.h"
 #include "eckit/geo/search/KDTree.h"
 
 
@@ -16,7 +16,20 @@ public:
 
     // -- Types
 
-    using Container = alloc::MemoryKDTree;
+    /// As eckit::KDMemory, not collecting statistics
+    struct Alloc : NoStatistics<KDMemory> {
+        // as KDMemory::deleteNode, recursing with this type (of the nodes, see SPNode::left)
+        template <class Node>
+        void deleteNode(Ptr p, const Node* n) {
+            if (auto* node = static_cast<Node*>(p); node != nullptr) {
+                deleteNode(node->left(*this), n);
+                deleteNode(node->right(*this), n);
+                delete node;
+            }
+        }
+    };
+
+    using Container = KDTreeX<TT<Traits, Alloc>>;
 
     // -- Constructors
 
@@ -44,11 +57,10 @@ private:
 
     // -- Members
 
-    alloc::Memory alloc_;
+    Alloc alloc_;
 
-    // queries don't modify it once built (its root is set, statistics are not collected), but aren't const
+    // queries don't modify it once built (no statistics), but aren't const (eckit::SPTree)
     mutable Container tree_{alloc_};
-
     size_t count_ = 0;
 
     // -- Overridden methods

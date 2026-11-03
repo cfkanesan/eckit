@@ -66,44 +66,35 @@ def _threads(threads) -> int:
     return threads
 
 
-cdef vector[size_t] _indices(indices, size_t size, str name) except *:
-    """Indices (a 1-D array of integers, in [0, size)) as a vector."""
+cdef vector[size_t] _subset(mask, indices, size_t size) except *:
+    """Indices of a subset of size points, by mask (boolean array) or indices."""
     np = _numpy()
 
-    array = np.asarray(indices)
-    if array.ndim != 1 or not (array.size == 0 or np.issubdtype(array.dtype, np.integer)):
-        raise TypeError(f"eckit.geo.Search: {name} must be a 1-D array of integers")
-
-    cdef const Py_ssize_t[::1] view = np.ascontiguousarray(array, dtype=np.intp)
-    cdef vector[size_t] result
-    result.reserve(view.shape[0])
-
-    cdef Py_ssize_t i
-    for i in range(view.shape[0]):
-        if view[i] < 0 or <size_t>view[i] >= size:
-            raise IndexError(
-                f"eckit.geo.Search: {name} {view[i]} out of range [0, {size})"
-            )
-        result.push_back(<size_t>view[i])
-    return result
-
-
-def _subset(mask, indices, size_t size):
-    """Indices of a subset (by mask, or by indices), or None."""
-    if mask is None and indices is None:
-        return None
-    if mask is not None and indices is not None:
-        raise ValueError("eckit.geo.Search: mask and indices are exclusive")
-
-    np = _numpy()
     if mask is not None:
+        if indices is not None:
+            raise ValueError("eckit.geo.Search: mask and indices are exclusive")
         mask = np.asarray(mask)
         if mask.dtype != np.bool_ or mask.shape != (size,):
             raise ValueError(
                 f"eckit.geo.Search: mask must be a boolean array of shape ({size},)"
             )
-        return np.flatnonzero(mask)
-    return indices
+        indices = np.flatnonzero(mask)
+
+    array = np.asarray(indices)
+    if array.ndim != 1 or not (array.size == 0 or np.issubdtype(array.dtype, np.integer)):
+        raise TypeError("eckit.geo.Search: indices must be a 1-D array of integers")
+    if array.size > 0 and (array.min() < 0 or array.max() >= size):
+        raise IndexError(f"eckit.geo.Search: indices out of range [0, {size})")
+
+    cdef const size_t[::1] view = np.ascontiguousarray(array, dtype=np.uintp)
+    cdef vector[size_t] result = vector[size_t](view.shape[0])
+    cdef Py_ssize_t i
+    for i in range(view.shape[0]):
+        result[i] = view[i]
+    return result
+
+
+_INTERNAL = object()  # construction without a grid (from_lonlat, from_xyz)
 
 
 cdef class Search:
@@ -124,83 +115,70 @@ cdef class Search:
     """
     cdef eckit_geo_search.SearchHandle* _handle
 
-    def __cinit__(self, grid=None, *, mask=None, indices=None, **spec):
+    def __cinit__(self, grid, *, mask=None, indices=None, **spec):
         self._handle = NULL
-        if grid is None:
-            return  # internal use only (from_lonlat, from_xyz)
+        if grid is _INTERNAL:
+            return
 
         cdef const eckit_geo_search.Grid* ptr = _grid_ptr(grid)
-        cdef vector[size_t] subset
 
-        selected = _subset(mask, indices, grid.size())
-        if selected is None:
+        if mask is None and indices is None:
             self._handle = eckit_geo_search.search_get(dereference(ptr), _spec(spec))
             return
 
-        subset = _indices(selected, grid.size(), "indices")
         self._handle = eckit_geo_search.search_grid_subset(
-            dereference(ptr), subset, _spec(spec)
+            dereference(ptr), _subset(mask, indices, grid.size()), _spec(spec)
         )
 
     def __dealloc__(self):
         if self._handle != NULL:
             del self._handle
 
-    cdef const eckit_geo_search.SearchHandle* _h(self) except NULL:
-        if self._handle == NULL:
-            raise ValueError("eckit.geo.Search: not initialised")
-        return self._handle
-
     @staticmethod
-    def from_lonlat(lon, lat, *, mask=None, indices=None, **spec) -> "Search":
+    def from_lonlat(lon, lat, **spec) -> "Search":
         """Search on (lon, lat) points (arrays, in degrees), on the figure of the spec
         (e.g. figure="wgs84", or R=6371229, see eckit::geo::Figure; default the grids
         default).
 
-        With mask (boolean array) or indices (into the points), only those points are
-        searched, and results are by index into the points.
+        For a subset, search on lon[sel], lat[sel] and map results with sel[index].
         """
         (lon, lat), _ = _coordinates(lon, lat)
-        return _from_points(lon, lat, None, mask, indices, spec)
+        return _from_points(lon, lat, None, spec)
 
     @staticmethod
-    def from_xyz(x, y, z, *, mask=None, indices=None, **spec) -> "Search":
+    def from_xyz(x, y, z, **spec) -> "Search":
         """Search on geocentric (x, y, z) points (arrays, in metres); (lon, lat) queries
-        are on the figure of the spec (as from_lonlat).
-
-        With mask (boolean array) or indices (into the points), only those points are
-        searched, and results are by index into the points.
-        """
+        are on the figure of the spec (as from_lonlat)."""
         (x, y, z), _ = _coordinates(x, y, z)
-        return _from_points(x, y, z, mask, indices, spec)
+        return _from_points(x, y, z, spec)
 
     # -- Single queries, a point (lon, lat) or (x, y, z)
 
     def search(self, point) -> list:
         """Search with the configured behaviour (nearest neighbour by default)."""
-        return eckit_geo_search.search_point(dereference(self._h()), _point(point))
+        return eckit_geo_search.search_point(dereference(self._handle), _point(point))
 
     def search_nn(self, point) -> tuple:
-        return eckit_geo_search.search_nn(dereference(self._h()), _point(point))
+        return eckit_geo_search.search_nn(dereference(self._handle), _point(point))
 
     def search_knn(self, point, k) -> list:
-        return eckit_geo_search.search_knn(dereference(self._h()), _point(point), k)
+        return eckit_geo_search.search_knn(dereference(self._handle), _point(point), k)
 
     def search_radius(self, point, radius) -> list:
         return eckit_geo_search.search_radius(
-            dereference(self._h()), _point(point), radius
+            dereference(self._handle), _point(point), radius
         )
 
     def search_knn_or_radius(self, point, k, radius) -> list:
         """Union of the k nearest neighbours and the neighbours within radius."""
         return eckit_geo_search.search_knn_or_radius(
-            dereference(self._h()), _point(point), k, radius
+            dereference(self._handle), _point(point), k, radius
         )
 
     def search_knn_and_radius(self, point, k, radius) -> list:
         """Intersection of the k nearest neighbours and the neighbours within radius."""
         return eckit_geo_search.search_knn_and_radius(
-            dereference(self._h()), _point(point), k, radius
+            dereference(self._handle), _point(point), k, radius
         )
 
     # -- Batch queries, arrays of (lon, lat) (in degrees) of any (same) shape
@@ -224,7 +202,7 @@ cdef class Search:
         cdef const double[::1] lat_v = lat
         cdef double[::1] dist_v = distance
         cdef Py_ssize_t[::1] index_v = index
-        cdef const eckit_geo_search.SearchHandle* h = self._h()
+        cdef const eckit_geo_search.SearchHandle* h = self._handle
 
         if n > 0:
             with nogil:
@@ -263,7 +241,7 @@ cdef class Search:
         cdef const double[::1] lat_v = lat
         cdef double[:, ::1] dist_v = distance
         cdef Py_ssize_t[:, ::1] index_v = index
-        cdef const eckit_geo_search.SearchHandle* h = self._h()
+        cdef const eckit_geo_search.SearchHandle* h = self._handle
 
         if n > 0:
             with nogil:
@@ -295,7 +273,7 @@ cdef class Search:
 
         cdef const double[::1] lon_v = lon
         cdef const double[::1] lat_v = lat
-        cdef const eckit_geo_search.SearchHandle* h = self._h()
+        cdef const eckit_geo_search.SearchHandle* h = self._handle
 
         cdef const double* lon_p = NULL
         cdef const double* lat_p = NULL
@@ -318,20 +296,20 @@ cdef class Search:
     def missing_index(self) -> int:
         """Index of missing neighbours (knn): the size of the numbering of the results
         (e.g. the grid size), so an invalid index."""
-        return eckit_geo_search.search_missing_index(dereference(self._h()))
+        return eckit_geo_search.search_missing_index(dereference(self._handle))
 
     @property
     def footprint(self) -> dict:
         """Memory used (bytes), in the process and shared (shared memory, page
         cache)."""
-        usage = eckit_geo_search.search_footprint(dereference(self._h()))
+        usage = eckit_geo_search.search_footprint(dereference(self._handle))
         return dict(zip(("memory", "shared"), usage))
 
     def __len__(self) -> int:
-        return eckit_geo_search.search_size(dereference(self._h()))
+        return eckit_geo_search.search_size(dereference(self._handle))
 
     def __repr__(self) -> str:
-        return eckit_geo_search.search_str(dereference(self._h()))
+        return eckit_geo_search.search_str(dereference(self._handle))
 
 
 cdef _array(const void* data, size_t size, dtype):
@@ -347,26 +325,8 @@ cdef _array(const void* data, size_t size, dtype):
     return out
 
 
-cdef Search _from_points(a, b, c, mask, indices, spec):
+cdef Search _from_points(a, b, c, spec):
     """Search on points (lon, lat) if c is None, otherwise (x, y, z)."""
-    np = _numpy()
-
-    cdef size_t size = a.shape[0]
-    cdef vector[size_t] numbering
-    cdef bint has_indices = False
-
-    selected = _subset(mask, indices, size)
-    if selected is not None:
-        numbering = _indices(selected, size, "indices")
-        has_indices = True
-
-        # only the selected points, numbered by their index
-        take = np.asarray(selected, dtype=np.intp)
-        a = np.ascontiguousarray(a[take])
-        b = np.ascontiguousarray(b[take])
-        if c is not None:
-            c = np.ascontiguousarray(c[take])
-
     cdef const double[::1] a_v = a
     cdef const double[::1] b_v = b
     cdef const double[::1] c_v
@@ -379,18 +339,14 @@ cdef Search _from_points(a, b, c, mask, indices, spec):
         a_p = &a_v[0]
         b_p = &b_v[0]
 
-    cdef Search search = Search.__new__(Search)
+    cdef Search search = Search.__new__(Search, _INTERNAL)
     if c is None:
-        search._handle = eckit_geo_search.search_points_lonlat(
-            n, a_p, b_p, numbering, has_indices, _spec(spec)
-        )
+        search._handle = eckit_geo_search.search_points_lonlat(n, a_p, b_p, _spec(spec))
     else:
         c_v = c
         if n > 0:
             c_p = &c_v[0]
-        search._handle = eckit_geo_search.search_points_xyz(
-            n, a_p, b_p, c_p, numbering, has_indices, _spec(spec)
-        )
+        search._handle = eckit_geo_search.search_points_xyz(n, a_p, b_p, c_p, _spec(spec))
     return search
 
 

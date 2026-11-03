@@ -36,7 +36,7 @@ namespace eckit::geo {
  * Spec, of the k-d tree: search-loader (see search::KDTreeFactory), caching, search-fast-build (defaults in
  * LibEcKitGeo).
  *
- * Searches can be on a subset of points (indices), with results in the numbering of the indices (e.g. grid indices).
+ * Searches can be on a subset of the grid points (grid indices), with results by grid index.
  * Queries are thread-safe; batch queries (arrays of (lon, lat)) run on threads.
  */
 class Search {
@@ -56,9 +56,6 @@ public:
 
     /// On a subset of the grid points (grid indices), results by grid index
     Search(const Grid&, const std::vector<size_t>& indices, const Spec& = spec::Custom{});
-
-    /// On points, results by their indices (one per point)
-    Search(const std::vector<PointXYZ>&, const std::vector<size_t>& indices, const Spec& = spec::Custom{});
 
     /// Sharing the k-d tree of another search, with another behaviour
     Search(const Search&, const Spec&);

@@ -153,7 +153,6 @@ list(APPEND eckit_geo_srcs
     range/Regular.h
     range/RegularXY.cc
     range/RegularXY.h
-    search/Alloc.h
     search/FileIO.cc
     search/FileIO.h
     search/KDTree.cc

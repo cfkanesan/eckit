@@ -57,26 +57,21 @@ cdef extern from * namespace "eckit::geo::python":
         return new SearchHandle{std::make_shared<const Search>(grid, indices, *to_spec(spec))};
     }
 
-    // on points (X, Y, Z), numbered by indices if given (has_indices)
+    // on points (X, Y, Z)
     inline SearchHandle* search_points_xyz(
-        size_t n, const double* x, const double* y, const double* z,
-        const std::vector<size_t>& indices, bool has_indices, const std::string& spec) {
+        size_t n, const double* x, const double* y, const double* z, const std::string& spec) {
         std::vector<PointXYZ> points;
         points.reserve(n);
         for (size_t i = 0; i < n; ++i) {
             points.emplace_back(x[i], y[i], z[i]);
         }
 
-        const auto custom = to_spec(spec);
-        return new SearchHandle{has_indices
-                                    ? std::make_shared<const Search>(points, indices, *custom)
-                                    : std::make_shared<const Search>(points, *custom)};
+        return new SearchHandle{std::make_shared<const Search>(points, *to_spec(spec))};
     }
 
     // on points (lon, lat), on the figure of the spec as (lon, lat) queries
     inline SearchHandle* search_points_lonlat(
-        size_t n, const double* lon, const double* lat,
-        const std::vector<size_t>& indices, bool has_indices, const std::string& spec) {
+        size_t n, const double* lon, const double* lat, const std::string& spec) {
         const auto custom = to_spec(spec);
         const projection::LonLatToXYZ to_xyz(*custom);
 
@@ -86,9 +81,7 @@ cdef extern from * namespace "eckit::geo::python":
             points.emplace_back(to_xyz.fwd(PointLonLat{lon[i], lat[i]}));
         }
 
-        return new SearchHandle{has_indices
-                                    ? std::make_shared<const Search>(points, indices, *custom)
-                                    : std::make_shared<const Search>(points, *custom)};
+        return new SearchHandle{std::make_shared<const Search>(points, *custom)};
     }
 
     inline Point to_point(const point_t& c) {
@@ -201,12 +194,10 @@ cdef extern from * namespace "eckit::geo::python":
         const Grid&, const vector[size_t]& indices, const string& spec
     ) except +
     SearchHandle* search_points_xyz(
-        size_t n, const double* x, const double* y, const double* z,
-        const vector[size_t]& indices, bint has_indices, const string& spec
+        size_t n, const double* x, const double* y, const double* z, const string& spec
     ) except +
     SearchHandle* search_points_lonlat(
-        size_t n, const double* lon, const double* lat,
-        const vector[size_t]& indices, bint has_indices, const string& spec
+        size_t n, const double* lon, const double* lat, const string& spec
     ) except +
 
     vector[pair[size_t, double]] search_point(

@@ -10,7 +10,6 @@
 
 #include "eckit/container/KDTree.h"
 #include "eckit/filesystem/PathName.h"
-#include "eckit/geo/search/Alloc.h"
 #include "eckit/geo/search/KDTree.h"
 #include "eckit/geo/util/mutex.h"
 
@@ -33,7 +32,15 @@ public:
 
     // -- Types
 
-    using Container = KDTreeMapped<Traits>;
+    /// As eckit::KDTreeMapped, not collecting statistics
+    struct Container : KDTreeX<TT<Traits, NoStatistics<KDMapped>>> {
+        Container(const PathName& path, size_t itemCount, size_t metadataSize) :
+            KDTreeX(storage_), storage_(path, itemCount, sizeof(Node), metadataSize) {
+            root_ = storage_.root();  // if complete, so queries don't set it
+        }
+
+        NoStatistics<KDMapped> storage_;
+    };
 
     // -- Constructors
 
@@ -61,7 +68,6 @@ public:
 
     void lock() override;
     void unlock() override;
-
 
     /// File-backed storage is shared (page cache)
     MemoryUsage footprint() const override { return {0, mapped_ ? storage_size(size()) : 0}; }
@@ -92,7 +98,6 @@ private:
     std::string tmp_;  // being built
 
     std::unique_ptr<Container> mapped_;
-    std::unique_ptr<alloc::ReadOnlyView> view_;  // queries, once complete
     size_t count_ = 0;
 
     util::recursive_mutex& mutex_;
@@ -109,11 +114,8 @@ private:
     /// Complete, and of the expected layout
     bool valid() const;
 
-    Container& mapped();
-    const Container& mapped() const;
-
-    /// Queries are on a read-only view of the mapped (complete) file
-    const alloc::ReadOnlyView& view() const;
+    /// Queries don't modify it once complete (no statistics), but aren't const (eckit::SPTree)
+    Container& mapped() const;
 
     // -- Overridden methods
 

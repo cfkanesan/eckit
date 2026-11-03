@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Batch searches (numpy arrays of (lon, lat) queries), searches on a subset of the grid
-# points and on other points, and grid coordinates as numpy arrays
+# points and on other points
 
 
 from concurrent.futures import ThreadPoolExecutor
@@ -95,7 +95,7 @@ def test_knn_is_brute_force():
     search = grid.search(loader="memory")
     lon, lat = random_lonlat(200, seed=4)
 
-    x, y, z = grid.to_xyz()
+    x, y, z = map(np.asarray, grid.to_xyz())
     R = grid.figure.R
     expected_distance, expected_index = brute_force_knn(x, y, z, *to_xyz(lon, lat, R), 6)
 
@@ -177,7 +177,7 @@ def test_knn_fewer_points_than_k():
 @pytest.mark.parametrize("loader", LOADERS)
 def test_grid_subset_by_mask(loader):
     grid = Grid(grid=[5, 5])
-    lat, lon = grid.to_latlons()
+    lat, lon = map(np.asarray, grid.to_latlons())
 
     # land-like mask: a band of latitudes
     mask = (lat > 20) & (lat < 60)
@@ -192,7 +192,7 @@ def test_grid_subset_by_mask(loader):
     assert np.all(mask[index])
 
     # as brute force on the masked points
-    x, y, z = grid.to_xyz()
+    x, y, z = map(np.asarray, grid.to_xyz())
     selected = np.flatnonzero(mask)
     expected_distance, expected_index = brute_force_knn(
         x[selected], y[selected], z[selected], *to_xyz(qlon, qlat, grid.figure.R), 3
@@ -274,23 +274,6 @@ def test_from_lonlat_figure():
         assert distance[1] == pytest.approx(R * np.sqrt(2))
 
 
-def test_from_lonlat_subset():
-    lon, lat = random_lonlat(1000, seed=12)
-    mask = lat > 0
-
-    search = Search.from_lonlat(lon, lat, mask=mask, loader="memory")
-    assert len(search) == mask.sum()
-    assert search.missing_index == np.flatnonzero(mask).max() + 1
-
-    # results by index into the points
-    _, index = search.nn(*random_lonlat(500, seed=13))
-    assert np.all(mask[index])
-
-    search = Search.from_lonlat(lon, lat, indices=[5, 500], loader="memory")
-    _, index = search.nn([lon[5], lon[500]], [lat[5], lat[500]])
-    assert list(index) == [5, 500]
-
-
 def test_from_xyz():
     grid = Grid(grid=[10, 10])
     x, y, z = grid.to_xyz()
@@ -309,24 +292,3 @@ def test_from_xyz():
 
     with pytest.raises(ValueError):
         Search.from_xyz(x, y, z[:-1])
-
-
-def test_grid_coordinates_numpy():
-    grid = Grid(grid=[30, 30])
-    n = grid.size()
-
-    lat, lon = grid.to_latlons()
-    assert isinstance(lat, np.ndarray) and isinstance(lon, np.ndarray)
-    assert lat.shape == lon.shape == (n,)
-
-    x, y, z = grid.to_xyz()
-    assert all(isinstance(c, np.ndarray) and c.shape == (n,) for c in (x, y, z))
-    np.testing.assert_allclose(np.sqrt(x**2 + y**2 + z**2), grid.figure.R)
-
-    assert isinstance(grid.lon(), np.ndarray) and len(grid.lon()) == 12
-    assert isinstance(grid.lat(), np.ndarray) and len(grid.lat()) == 7
-    assert list(grid.lat()) == [90, 60, 30, 0, -30, -60, -90]
-
-    grid = Grid(x=[0, 2, 1], y=[0, 1, 1])
-    assert isinstance(grid.x(), np.ndarray) and list(grid.x()) == [0, 1, 2]
-    assert isinstance(grid.y(), np.ndarray) and list(grid.y()) == [0, 1]

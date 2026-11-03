@@ -54,7 +54,7 @@ def test_grid_unstructured_ll_from_coordinates():
     assert grid == Grid(_spec_str(dict(latitudes=lat, longitudes=lon)))
     assert grid == Grid(uid=grid.uid)
     assert grid.shape == (len(lat),)
-    assert tuple(map(list, grid.to_latlons())) == (list(lat), list(lon))
+    assert grid.to_latlons() == (lat, lon)
 
 
 def test_grid_to_unstructured_ll():
@@ -62,7 +62,7 @@ def test_grid_to_unstructured_ll():
 
     a = grid.to_unstructured_ll()
     assert a.type == "unstructured_ll"
-    assert tuple(map(list, a.to_latlons())) == tuple(map(list, grid.to_latlons()))
+    assert a.to_latlons() == grid.to_latlons()
     assert a.uid == grid.uid  # no name given, same points -> same uid
 
     name = "custom-to-unstructured-ll"

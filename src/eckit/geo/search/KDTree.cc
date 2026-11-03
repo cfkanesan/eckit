@@ -30,11 +30,6 @@ KDTree::KDTree(size_t size) : size_(size) {
 KDTree::~KDTree() = default;
 
 
-void KDTree::stats_print(std::ostream& out, bool /*pretty*/) const {
-    out << "statistics not collected" << std::endl;
-}
-
-
 namespace {
 
 

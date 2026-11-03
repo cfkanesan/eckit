@@ -41,10 +41,25 @@ struct Neighbour {
 using Neighbours = std::vector<Neighbour>;
 
 
+/// k-d tree allocator (e.g. eckit::KDMemory), not collecting statistics (eckit::StatCollector), so that queries don't
+/// write and can be concurrent
+template <class Alloc>
+struct NoStatistics : Alloc {
+    using Alloc::Alloc;
+
+    void statsCall() {}
+    void statsVisitNode() {}
+    void statsDepth(size_t) {}
+    void statsNewCandidateOK() {}
+    void statsNewCandidateMiss() {}
+    void statsCrossOver() {}
+};
+
+
 /**
  * @brief k-d tree, abstracting its storage
  * @details Building is: lock(), if not ready() then build() (or insert()) and commit(), unlock(). Once built, queries
- * don't modify the k-d tree (no statistics are collected), so they are safe to call concurrently.
+ * don't modify the k-d tree (no statistics are collected, see NoStatistics), so they are safe to call concurrently.
  */
 class KDTree {
 public:
@@ -94,10 +109,6 @@ public:
     /// Exclusive building, across threads and processes as applicable (BasicLockable)
     virtual void lock() {}
     virtual void unlock() {}
-
-    /// Statistics are not collected, so that queries are concurrent
-    virtual void stats_print(std::ostream&, bool pretty) const;
-    virtual void stats_reset() {}
 
     virtual MemoryUsage footprint() const = 0;
 

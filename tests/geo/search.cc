@@ -537,24 +537,6 @@ CASE("Search: subset of the grid points, by grid index") {
 }
 
 
-CASE("Search: points, by index") {
-    projection::LonLatToXYZ to_xyz(1.);
-    const std::vector<PointXYZ> points{to_xyz.fwd(PointLonLat{0., 0.}), to_xyz.fwd(PointLonLat{90., 0.}),
-                                       to_xyz.fwd(PointLonLat{180., 0.})};
-    const std::vector<size_t> numbering{7, 3, 11};
-
-    const spec::Custom spec{{{"search-loader", "memory"}, {"R", 1.}}};
-    const Search search(points, numbering, spec);
-
-    EXPECT(search.search_nn(PointLonLat{10., 0.}).index == 7);
-    EXPECT(search.search_nn(PointLonLat{100., 0.}).index == 3);
-    EXPECT(search.search_nn(PointLonLat{-170., 0.}).index == 11);
-    EXPECT(search.missing_index() == 12);
-
-    EXPECT_THROWS_AS(Search(points, std::vector<size_t>{1, 2}, spec), exception::SearchError);
-}
-
-
 }  // namespace eckit::geo::test
 
 

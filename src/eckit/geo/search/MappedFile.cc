@@ -99,17 +99,17 @@ void MappedFile::insert(const Value& value) {
 
 
 Neighbour MappedFile::nearest_neighbour(const Point& p) const {
-    return to_neighbour(view().kdtree.nearestNeighbour(p));
+    return to_neighbour(mapped().nearestNeighbour(p));
 }
 
 
 Neighbours MappedFile::k_nearest_neighbours(const Point& p, size_t k) const {
-    return to_neighbours(view().kdtree.kNearestNeighbours(p, k));
+    return to_neighbours(mapped().kNearestNeighbours(p, k));
 }
 
 
 Neighbours MappedFile::find_in_sphere(const Point& p, double radius) const {
-    return to_neighbours(view().kdtree.findInSphere(p, radius));
+    return to_neighbours(mapped().findInSphere(p, radius));
 }
 
 
@@ -205,7 +205,6 @@ PathName MappedFile::kdtree_path(const std::string& uid, const PathName& root) {
 
 
 void MappedFile::close() {
-    view_.reset();
     mapped_.reset();
     count_ = 0;
 }
@@ -219,13 +218,6 @@ void MappedFile::open(const PathName& path, bool create) {
 
     mapped_ = std::make_unique<Container>(path, create ? size() : 0, 0);
     count_  = create ? 0 : size();
-
-    if (!create) {
-        // complete: queries are on a read-only view of the same nodes (KDMapped layout), not collecting statistics
-        auto& tree = static_cast<Container::KDTree&>(*mapped_);
-        auto* base = tree.alloc_.base(static_cast<const Container::Node*>(nullptr));
-        view_      = std::make_unique<alloc::ReadOnlyView>(reinterpret_cast<char*>(base), tree.size());
-    }
 }
 
 
@@ -253,20 +245,7 @@ bool MappedFile::valid() const {
 }
 
 
-MappedFile::Container& MappedFile::mapped() {
-    return const_cast<Container&>(static_cast<const MappedFile&>(*this).mapped());
-}
-
-
-const alloc::ReadOnlyView& MappedFile::view() const {
-    if (!view_) {
-        throw exception::SearchError("MappedFile: not complete (built or loaded)", Here());
-    }
-    return *view_;
-}
-
-
-const MappedFile::Container& MappedFile::mapped() const {
+MappedFile::Container& MappedFile::mapped() const {
     if (!mapped_) {
         throw exception::SearchError("MappedFile: not mapped", Here());
     }
